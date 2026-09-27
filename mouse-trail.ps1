@@ -373,29 +373,70 @@ public sealed class MouseTrailForm : Form
     private void DrawSegments(Graphics graphics, Point origin)
     {
         long now = clock.ElapsedMilliseconds;
-        for (int i = 1; i < points.Count; i++)
+
+        if (points.Count == 2)
+        {
+            TrailPoint first = points[0];
+            TrailPoint second = points[1];
+            float age = now - ((first.Time + second.Time) / 2.0f);
+            float opacity = Math.Max(0.0f, Math.Min(1.0f, 1.0f - age / lifetimeMs));
+            int alpha = (int)(255 * opacity * opacity);
+            if (alpha <= 0) return;
+            using (Pen pen = new Pen(Color.FromArgb(alpha, trailColor), trailWidth))
+            {
+                pen.StartCap = LineCap.Flat;
+                pen.EndCap = LineCap.Flat;
+                graphics.DrawLine(pen,
+                    LocalPoint(first.Position, origin),
+                    LocalPoint(second.Position, origin));
+            }
+            return;
+        }
+
+        // Join adjacent midpoints with quadratic Bezier curves. Unlike a cardinal
+        // spline, this corner-cutting curve stays inside the sampled path and cannot
+        // overshoot or wobble when new cursor samples arrive.
+        for (int i = 1; i < points.Count - 1; i++)
         {
             TrailPoint previous = points[i - 1];
             TrailPoint current = points[i];
-            float age = now - ((previous.Time + current.Time) / 2.0f);
+            TrailPoint next = points[i + 1];
+            float age = now - current.Time;
             float opacity = Math.Max(0.0f, Math.Min(1.0f, 1.0f - age / lifetimeMs));
             int alpha = (int)(255 * opacity * opacity);
             if (alpha <= 0) continue;
 
-            PointF p1 = LocalPoint(previous.Position, origin);
-            PointF p2 = LocalPoint(current.Position, origin);
+            PointF start = i == 1
+                ? previous.Position
+                : Midpoint(previous.Position, current.Position);
+            PointF end = i == points.Count - 2
+                ? next.Position
+                : Midpoint(current.Position, next.Position);
+            PointF control1 = new PointF(
+                start.X + (current.Position.X - start.X) * (2.0f / 3.0f),
+                start.Y + (current.Position.Y - start.Y) * (2.0f / 3.0f));
+            PointF control2 = new PointF(
+                end.X + (current.Position.X - end.X) * (2.0f / 3.0f),
+                end.Y + (current.Position.Y - end.Y) * (2.0f / 3.0f));
 
+            using (GraphicsPath path = new GraphicsPath())
             using (Pen pen = new Pen(Color.FromArgb(alpha, trailColor), trailWidth))
             {
-                // Flat caps meet without the doubled alpha that made every sample
-                // position appear as a bright dot. The doubled sampling density keeps
-                // the resulting joins visually continuous.
                 pen.StartCap = LineCap.Flat;
                 pen.EndCap = LineCap.Flat;
-                pen.LineJoin = LineJoin.Round;
-                graphics.DrawLine(pen, p1, p2);
+                path.AddBezier(
+                    LocalPoint(start, origin),
+                    LocalPoint(control1, origin),
+                    LocalPoint(control2, origin),
+                    LocalPoint(end, origin));
+                graphics.DrawPath(pen, path);
             }
         }
+    }
+
+    private static PointF Midpoint(PointF a, PointF b)
+    {
+        return new PointF((a.X + b.X) * 0.5f, (a.Y + b.Y) * 0.5f);
     }
 
     private static PointF LocalPoint(PointF point, Point origin)
