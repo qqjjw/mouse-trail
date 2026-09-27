@@ -140,7 +140,7 @@ public sealed class MouseTrailForm : Form
     private long lastFullscreenCheck;
     private bool fullscreen;
     private const int MarginPixels = 10;
-    private const int MaxPoints = 96;
+    private const int MaxPoints = 192;
 
     public MouseTrailForm(string colorHtml, float width, int lifetime)
     {
@@ -234,8 +234,10 @@ public sealed class MouseTrailForm : Form
                     visualHead.X + dx * response,
                     visualHead.Y + dy * response);
 
-                if (points.Count == 0 || Distance(points[points.Count - 1].Position, visualHead) >= 0.65f)
+                if (points.Count == 0)
                     AddPoint(visualHead, now);
+                else if (Distance(points[points.Count - 1].Position, visualHead) >= 0.65f)
+                    AddDensifiedPoint(visualHead, now);
             }
         }
 
@@ -257,6 +259,20 @@ public sealed class MouseTrailForm : Form
 
     private void AddPoint(PointF position, long now)
     {
+        points.Add(new TrailPoint { Position = position, Time = now });
+        if (points.Count > MaxPoints) points.RemoveRange(0, points.Count - MaxPoints);
+        surfaceIsEmpty = false;
+    }
+
+    private void AddDensifiedPoint(PointF position, long now)
+    {
+        TrailPoint previous = points[points.Count - 1];
+        PointF midpoint = new PointF(
+            (previous.Position.X + position.X) * 0.5f,
+            (previous.Position.Y + position.Y) * 0.5f);
+        long midpointTime = previous.Time + (now - previous.Time) / 2;
+
+        points.Add(new TrailPoint { Position = midpoint, Time = midpointTime });
         points.Add(new TrailPoint { Position = position, Time = now });
         if (points.Count > MaxPoints) points.RemoveRange(0, points.Count - MaxPoints);
         surfaceIsEmpty = false;
@@ -371,8 +387,11 @@ public sealed class MouseTrailForm : Form
 
             using (Pen pen = new Pen(Color.FromArgb(alpha, trailColor), trailWidth))
             {
-                pen.StartCap = LineCap.Round;
-                pen.EndCap = LineCap.Round;
+                // Flat caps meet without the doubled alpha that made every sample
+                // position appear as a bright dot. The doubled sampling density keeps
+                // the resulting joins visually continuous.
+                pen.StartCap = LineCap.Flat;
+                pen.EndCap = LineCap.Flat;
                 pen.LineJoin = LineJoin.Round;
                 graphics.DrawLine(pen, p1, p2);
             }
