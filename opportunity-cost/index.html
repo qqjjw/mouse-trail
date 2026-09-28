@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>기회비용 계산기 🌱</title>
+<style>
+:root{font-family:ui-rounded,"Pretendard","Apple SD Gothic Neo",system-ui,sans-serif;color:#26352d;background:#f7fbf7}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}
+main{width:min(720px,100%)}.card{background:#fff;border:1px solid #dfeadf;border-radius:28px;padding:26px;box-shadow:0 18px 50px #244d2a12}
+h1{margin:0 0 6px;font-size:clamp(26px,6vw,42px)}.sub{margin:0 0 24px;color:#637168}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.field{background:#f4f8f3;border-radius:18px;padding:14px}
+label{display:block;font-size:13px;color:#65736a;margin-bottom:7px}input,select{width:100%;border:0;background:transparent;font:inherit;font-size:18px;outline:none;color:#26352d}
+.result{margin-top:16px;padding:22px;border-radius:22px;background:#eaf6e8}.big{font-size:clamp(28px,7vw,46px);font-weight:800;margin:5px 0}
+.muted{color:#6a776e;font-size:13px;line-height:1.5}.row{display:flex;justify-content:space-between;gap:12px;margin-top:10px}
+.badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#fff;font-size:12px}.error{color:#9a4c4c}
+footer{padding:14px 8px 0;text-align:center;color:#7c897f;font-size:12px}
+@media(max-width:560px){.grid{grid-template-columns:1fr}.card{padding:20px}}
+</style>
+</head>
+<body><main><section class="card">
+<h1>안 사면 얼마 자랄까? 🌱</h1>
+<p class="sub">지금 쓸 돈을 미국 단기 국채 수준의 금리로 굴린다고 가정한 아주 작은 기회비용 계산기.</p>
+<div class="grid">
+<div class="field"><label for="amount">지출하려는 금액</label><input id="amount" type="number" min="0" step="1000" value="100000"></div>
+<div class="field"><label for="unit">표시 단위</label><select id="unit"><option>₩</option><option>$</option><option>€</option><option>¥</option></select></div>
+<div class="field"><label for="years">기다리는 기간</label><input id="years" type="number" min="0" max="50" step="0.5" value="5"></div>
+<div class="field"><label for="rate">연 이율 (%)</label><input id="rate" type="number" min="0" max="30" step="0.01" value="4.00"></div>
+</div>
+<div class="result">
+<span class="badge" id="source">금리 불러오는 중…</span>
+<div class="big" id="cost">—</div>
+<div id="sentence">계산 중…</div>
+<div class="row muted"><span>미래 가치</span><strong id="future">—</strong></div>
+</div>
+<p class="muted" id="note">복리 기준의 단순 비교입니다. 세금·물가·환율·투자 위험은 반영하지 않으며 투자 조언이 아닙니다.</p>
+</section><footer>데이터는 U.S. Treasury Fiscal Data API에서 1개 레코드만 요청해요. 🍃</footer></main>
+<script>
+const $=id=>document.getElementById(id);
+const amount=$('amount'), years=$('years'), rate=$('rate'), unit=$('unit');
+const fmt=n=>unit.value+Math.round(n).toLocaleString('ko-KR');
+function render(){
+ const p=Math.max(0,+amount.value||0), y=Math.max(0,+years.value||0), r=Math.max(0,+rate.value||0)/100;
+ const fv=p*Math.pow(1+r,y), cost=fv-p;
+ $('cost').textContent=fmt(cost);
+ $('future').textContent=fmt(fv);
+ $('sentence').textContent=y+'년 뒤 포기하게 되는 예상 이자예요.';
+}
+[amount,years,rate,unit].forEach(x=>x.addEventListener('input',render)); render();
+
+async function loadRate(){
+ const url='https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?filter=security_desc:eq:Treasury%20Bills&sort=-record_date&page[size]=1&fields=record_date,avg_interest_rate_amt,security_desc';
+ try{
+   const c=new AbortController(); const timer=setTimeout(()=>c.abort(),4500);
+   const res=await fetch(url,{signal:c.signal,headers:{Accept:'application/json'}}); clearTimeout(timer);
+   if(!res.ok) throw new Error('HTTP '+res.status);
+   const json=await res.json(), row=json.data&&json.data[0];
+   if(!row) throw new Error('empty');
+   const v=parseFloat(row.avg_interest_rate_amt); if(!Number.isFinite(v)) throw new Error('bad rate');
+   rate.value=v.toFixed(3); render();
+   $('source').textContent='미 재무부 Treasury Bills 평균금리 · '+row.record_date;
+ }catch(e){
+   $('source').textContent='오프라인 기본값 4.00% 사용';
+   $('source').classList.add('error');
+ }
+}
+loadRate();
+</script></body></html>
