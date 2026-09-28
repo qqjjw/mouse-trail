@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           API='https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?filter=security_desc:eq:Treasury%20Bills&sort=-record_date&page[size]=1&fields=record_date,avg_interest_rate_amt,security_desc'
-          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$API" -o /tmp/treasury.json
+          curl --globoff --fail --silent --show-error --retry 3 --retry-delay 2 "$API" -o /tmp/treasury.json
 
           python3 - <<'PY'
           import json
