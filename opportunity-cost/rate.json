@@ -1,6 +1,6 @@
 {
-  "record_date": null,
-  "rate": 4.0,
+  "record_date": "2026-08-31",
+  "rate": 3.788,
   "security_desc": "Treasury Bills",
-  "source": "fallback seed; GitHub Actions will replace this"
+  "source": "U.S. Treasury Fiscal Data API"
 }
