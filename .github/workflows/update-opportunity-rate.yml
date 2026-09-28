@@ -1,0 +1,55 @@
+name: Update opportunity cost rate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 2 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  update-rate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest Treasury Bills average rate
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?filter=security_desc:eq:Treasury%20Bills&sort=-record_date&page[size]=1&fields=record_date,avg_interest_rate_amt,security_desc'
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$API" -o /tmp/treasury.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          src = json.loads(Path('/tmp/treasury.json').read_text())
+          row = src['data'][0]
+          out = {
+              'record_date': row['record_date'],
+              'rate': float(row['avg_interest_rate_amt']),
+              'security_desc': row['security_desc'],
+              'source': 'U.S. Treasury Fiscal Data API'
+          }
+          Path('opportunity-cost/rate.json').write_text(
+              json.dumps(out, ensure_ascii=False, indent=2) + '\n'
+          )
+          PY
+
+      - name: Commit only when the rate changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- opportunity-cost/rate.json; then
+            echo "No rate change."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add opportunity-cost/rate.json
+          git commit -m "Update Treasury Bills rate"
+          git push
