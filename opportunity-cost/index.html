@@ -27,13 +27,13 @@ footer{padding:14px 8px 0;text-align:center;color:#7c897f;font-size:12px}
 <div class="field"><label for="rate">연 이율 (%)</label><input id="rate" type="number" min="0" max="30" step="0.01" value="4.00"></div>
 </div>
 <div class="result">
-<span class="badge" id="source">금리 불러오는 중…</span>
+<span class="badge" id="source">저장된 금리 불러오는 중…</span>
 <div class="big" id="cost">—</div>
 <div id="sentence">계산 중…</div>
 <div class="row muted"><span>미래 가치</span><strong id="future">—</strong></div>
 </div>
 <p class="muted" id="note">복리 기준의 단순 비교입니다. 세금·물가·환율·투자 위험은 반영하지 않으며 투자 조언이 아닙니다.</p>
-</section><footer>데이터는 U.S. Treasury Fiscal Data API에서 1개 레코드만 요청해요. 🍃</footer></main>
+</section><footer>금리는 GitHub Actions가 갱신한 작은 JSON 파일에서 읽어요. 🍃</footer></main>
 <script>
 const $=id=>document.getElementById(id);
 const amount=$('amount'), years=$('years'), rate=$('rate'), unit=$('unit');
@@ -48,18 +48,16 @@ function render(){
 [amount,years,rate,unit].forEach(x=>x.addEventListener('input',render)); render();
 
 async function loadRate(){
- const url='https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?filter=security_desc:eq:Treasury%20Bills&sort=-record_date&page[size]=1&fields=record_date,avg_interest_rate_amt,security_desc';
  try{
-   const c=new AbortController(); const timer=setTimeout(()=>c.abort(),4500);
-   const res=await fetch(url,{signal:c.signal,headers:{Accept:'application/json'}}); clearTimeout(timer);
+   const res=await fetch('./rate.json',{cache:'no-store'});
    if(!res.ok) throw new Error('HTTP '+res.status);
-   const json=await res.json(), row=json.data&&json.data[0];
-   if(!row) throw new Error('empty');
-   const v=parseFloat(row.avg_interest_rate_amt); if(!Number.isFinite(v)) throw new Error('bad rate');
+   const data=await res.json();
+   const v=parseFloat(data.rate);
+   if(!Number.isFinite(v)) throw new Error('bad rate');
    rate.value=v.toFixed(3); render();
-   $('source').textContent='미 재무부 Treasury Bills 평균금리 · '+row.record_date;
+   $('source').textContent='미 재무부 Treasury Bills 평균금리 · '+data.record_date;
  }catch(e){
-   $('source').textContent='오프라인 기본값 4.00% 사용';
+   $('source').textContent='저장된 금리 없음 · 기본값 4.00% 사용';
    $('source').classList.add('error');
  }
 }
