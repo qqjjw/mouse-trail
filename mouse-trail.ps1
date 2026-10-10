@@ -1,4 +1,4 @@
-# Mouse Trail MVP - close this terminal or press Ctrl+C to stop.
+# Mouse Trail MVP - right-click the tray icon to stop.
 # Visual constants are intentionally kept here for easy personal customization.
 $TrailColor = '#A855F7'
 $TrailWidth = 4.0
@@ -141,6 +141,9 @@ public sealed class MouseTrailForm : Form
     private bool fullscreen;
     private const int MarginPixels = 10;
     private const int MaxPoints = 192;
+    private readonly NotifyIcon tray = new NotifyIcon();
+    private readonly ContextMenuStrip trayMenu = new ContextMenuStrip();
+    private Bitmap renderBuffer;
 
     public MouseTrailForm(string colorHtml, float width, int lifetime)
     {
@@ -153,6 +156,12 @@ public sealed class MouseTrailForm : Form
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
         Bounds = new Rectangle(-32000, -32000, 1, 1);
+
+        trayMenu.Items.Add("Exit", null, delegate { Close(); });
+        tray.Icon = SystemIcons.Application;
+        tray.Text = "Mouse Trail";
+        tray.ContextMenuStrip = trayMenu;
+        tray.Visible = true;
 
         timer.Interval = 16;
         timer.Tick += TickTrail;
@@ -182,6 +191,10 @@ public sealed class MouseTrailForm : Form
     {
         timer.Stop();
         timer.Dispose();
+        tray.Visible = false;
+        tray.Dispose();
+        trayMenu.Dispose();
+        if (renderBuffer != null) renderBuffer.Dispose();
         base.OnFormClosed(e);
     }
 
@@ -330,21 +343,33 @@ public sealed class MouseTrailForm : Form
     private void RenderTrail()
     {
         Rectangle bounds = CalculateBounds();
-
-        using (Bitmap bitmap = new Bitmap(Math.Max(1, bounds.Width), Math.Max(1, bounds.Height), PixelFormat.Format32bppPArgb))
+        // Bound the allocation even after cursor warps or display layout changes.
+        if ((long)bounds.Width * bounds.Height > 8388608)
         {
+            points.Clear();
+            haveLastCursor = false;
+            bounds = new Rectangle(-32000, -32000, 1, 1);
+        }
+        int width = ((bounds.Width + 127) / 128) * 128;
+        int height = ((bounds.Height + 127) / 128) * 128;
+        if (renderBuffer == null || renderBuffer.Width < width || renderBuffer.Height < height ||
+            (points.Count == 0 && renderBuffer.Width * renderBuffer.Height > 16384))
+        {
+            if (renderBuffer != null) renderBuffer.Dispose();
+            renderBuffer = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
+        }
+        using (Graphics graphics = Graphics.FromImage(renderBuffer))
+        {
+            graphics.Clear(Color.Transparent);
             if (points.Count >= 2)
             {
-                using (Graphics graphics = Graphics.FromImage(bitmap))
-                {
                     graphics.SmoothingMode = SmoothingMode.AntiAlias;
                     graphics.CompositingMode = CompositingMode.SourceOver;
                     graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
                     DrawSegments(graphics, bounds.Location);
-                }
             }
-            UpdateLayeredBitmap(bitmap, bounds.Location);
         }
+        UpdateLayeredBitmap(renderBuffer, bounds.Location);
         surfaceIsEmpty = points.Count == 0;
     }
 
@@ -419,17 +444,24 @@ public sealed class MouseTrailForm : Form
                 end.X + (current.Position.X - end.X) * (2.0f / 3.0f),
                 end.Y + (current.Position.Y - end.Y) * (2.0f / 3.0f));
 
-            using (GraphicsPath path = new GraphicsPath())
             using (Pen pen = new Pen(Color.FromArgb(alpha, trailColor), trailWidth))
             {
                 pen.StartCap = LineCap.Flat;
                 pen.EndCap = LineCap.Flat;
-                path.AddBezier(
-                    LocalPoint(start, origin),
-                    LocalPoint(control1, origin),
-                    LocalPoint(control2, origin),
-                    LocalPoint(end, origin));
-                graphics.DrawPath(pen, path);
+                // Evaluate the quadratic directly; short segments preserve the curve
+                // without invoking GDI+'s problematic path stroking operation.
+                int steps = Math.Max(2, Math.Min(128, (int)Math.Ceiling(
+                    (Distance(start, current.Position) + Distance(current.Position, end)) / 2.0f)));
+                PointF[] curve = new PointF[steps + 1];
+                for (int sample = 0; sample <= steps; sample++)
+                {
+                    float t = sample / (float)steps;
+                    float u = 1.0f - t;
+                    curve[sample] = LocalPoint(new PointF(
+                        u * u * start.X + 2 * u * t * current.Position.X + t * t * end.X,
+                        u * u * start.Y + 2 * u * t * current.Position.Y + t * t * end.Y), origin);
+                }
+                graphics.DrawLines(pen, curve);
             }
         }
     }
@@ -514,13 +546,9 @@ try {
         Add-Type -TypeDefinition $source -Language CSharp -ReferencedAssemblies $frameworkReferences
     }
 
-    Write-Host 'Mouse Trail is running.' -ForegroundColor Magenta
-    Write-Host 'Close this window or press Ctrl+C to stop.'
     [MouseTrailProgram]::Run($TrailColor, [single]$TrailWidth, $TrailLifetimeMs)
 }
 catch {
-    Write-Error $_
-    Write-Host 'Press Enter to close.'
-    [void](Read-Host)
+    [System.Windows.Forms.MessageBox]::Show($_.ToString(), 'Mouse Trail - startup error') | Out-Null
     exit 1
 }
